@@ -216,6 +216,7 @@ export default defineConfig({
       perf: "warn",
     },
     rules: {
+      "eslint/no-empty-pattern": "error",
       "eslint/no-control-regex": "off",
       "typescript/no-this-alias": "off",
       "unicorn/prefer-add-event-listener": "off",
