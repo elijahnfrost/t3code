@@ -3,16 +3,26 @@ import { createBrowserHistory, createHashHistory } from "@tanstack/react-router"
 
 import { applyAppearanceContrast } from "./appearanceContrast";
 import { applyAppearanceFontVariables } from "./appearanceFonts";
+import { startHostFreezeToasts } from "./components/HostFreezeToastCoordinator";
+import { startLegacyThreadMigrationToast } from "./components/LegacyThreadMigrationToast";
+import { startPermissionUpdateNotices } from "./components/PermissionUpdateNotice";
 import { startAgentOpenedPreviews } from "./components/preview/agentOpenedPreviews";
+import { startDesktopUpdateLaunchNotice } from "./components/sidebar/updateEverythingRun";
+import { startThreadNotifications } from "./components/ThreadNotificationCoordinator";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "./branding";
 import { resolveServerBackedAppDisplayName } from "./branding.logic";
 import { isElectron } from "./env";
-import { getClientSettings, subscribeClientSettings } from "./hooks/useSettings";
+import { startDefaultThemeAdoption } from "./hooks/useDefaultTheme";
+import {
+  getClientSettings,
+  startModelPreferencesMigration,
+  subscribeClientSettings,
+} from "./hooks/useSettings";
 import {
   syncDocumentElectronPlatformClasses,
   syncDocumentWindowControlsOverlayClass,
 } from "./lib/windowControlsOverlay";
-import { prepareProviderAuthDelivery } from "./providerAuthDelivery";
+import { startProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { primaryServerConfigAtom } from "./state/server";
@@ -90,7 +100,7 @@ function startDocumentTitle(): void {
  */
 export function startAppServices(): AppRouter {
   // Ahead of the history: the provider auth code must leave the address before anything reads it.
-  prepareProviderAuthDelivery();
+  startProviderAuthDelivery();
 
   // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
   const router = getRouter(isElectron ? createHashHistory() : createBrowserHistory());
@@ -102,7 +112,15 @@ export function startAppServices(): AppRouter {
 
   startClientAppearance();
   startDocumentTitle();
+  startDefaultThemeAdoption();
+  startModelPreferencesMigration();
   startAgentOpenedPreviews();
+
+  startHostFreezeToasts();
+  startLegacyThreadMigrationToast();
+  startPermissionUpdateNotices(router);
+  startThreadNotifications(appAtomRegistry, router);
+  if (isElectron) startDesktopUpdateLaunchNotice();
 
   return router;
 }
