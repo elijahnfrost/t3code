@@ -3,11 +3,15 @@ import { createBrowserHistory, createHashHistory } from "@tanstack/react-router"
 
 import { applyAppearanceContrast } from "./appearanceContrast";
 import { applyAppearanceFontVariables } from "./appearanceFonts";
+import { startBackgroundThreadAnnouncements } from "./components/BackgroundThreadAnnouncer";
+import { startSshPasswordPromptQueue } from "./components/desktop/SshPasswordPromptDialog";
 import { startAgentOpenedPreviews } from "./components/preview/agentOpenedPreviews";
+import { startMainAppLocationTracking } from "./components/sidebar/mainAppLocation";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "./branding";
 import { resolveServerBackedAppDisplayName } from "./branding.logic";
 import { isElectron } from "./env";
 import { getClientSettings, subscribeClientSettings } from "./hooks/useSettings";
+import { startThreadVisitedMigration } from "./hooks/useThreadVisitedMigration";
 import {
   syncDocumentElectronPlatformClasses,
   syncDocumentWindowControlsOverlayClass,
@@ -103,6 +107,10 @@ export function startAppServices(): AppRouter {
   startClientAppearance();
   startDocumentTitle();
   startAgentOpenedPreviews();
+  startMainAppLocationTracking(router);
+  startBackgroundThreadAnnouncements(appAtomRegistry, router);
+  startThreadVisitedMigration(appAtomRegistry);
+  startSshPasswordPromptQueue();
 
   return router;
 }
