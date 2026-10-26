@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 
 import type { OpenPreviewMutation } from "./browser/openFileInPreview";
 import type { ClosedView, ClosedViewEntry } from "./closedViewStore";
@@ -15,6 +15,7 @@ export interface ReopenOwnerState {
   catalogReady: boolean;
   ownerExists: boolean;
   shellLive: boolean;
+  threadSettled: boolean;
   panel: ThreadRightPanelState;
 }
 
@@ -35,11 +36,13 @@ export function planNextReopen(
       break;
     }
     const alreadyOpen =
-      entry.kind === "panel-tab"
-        ? owner.panel.isOpen && owner.panel.surfaces.some((s) => s.id === entry.surface.id)
-        : owner.panel.surfaces.some(
-            (s) => s.kind === "preview" && s.resourceId === entry.snapshot.tabId,
-          );
+      entry.kind === "thread"
+        ? !owner.threadSettled
+        : entry.kind === "panel-tab"
+          ? owner.panel.isOpen && owner.panel.surfaces.some((s) => s.id === entry.surface.id)
+          : owner.panel.surfaces.some(
+              (s) => s.kind === "preview" && s.resourceId === entry.snapshot.tabId,
+            );
     if (alreadyOpen) {
       drop.push(entry);
       continue;
@@ -91,12 +94,14 @@ export async function reopenClosedView(
   view: ClosedView,
   options: {
     openPreview: OpenPreviewMutation;
+    unsettleThread: (threadRef: ScopedThreadRef) => Promise<boolean>;
     workspaceAvailable: boolean;
   },
 ): Promise<boolean> {
   const panels = useRightPanelStore.getState();
   const ref = view.threadRef;
 
+  if (view.kind === "thread") return options.unsettleThread(ref);
   if (view.kind === "browser") {
     const url = view.snapshot.navStatus._tag === "Idle" ? undefined : view.snapshot.navStatus.url;
     const result = await openPreviewSession({

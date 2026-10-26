@@ -12,6 +12,7 @@ import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { useClosedViewStore } from "../closedViewStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentCatalog } from "../connection/catalog";
+import * as ThreadUndo from "../hooks/threadUndo";
 import { effectiveShortcutsForCommand, resolveShortcutCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -34,7 +35,9 @@ import { readProject, readThreadShell } from "../state/entities";
 import { previewEnvironment } from "../state/preview";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { environmentShell } from "../state/shell";
+import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import {
   buildDraftThreadRouteParams,
@@ -103,6 +106,10 @@ export function ReopenClosedViewShortcut() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const hasHistory = useClosedViewStore((state) => state.entries.length > 0);
   const openPreview = useAtomCommand(previewEnvironment.open);
+  const unsettle = useOrchestrationCommand(
+    threadEnvironment.unsettle,
+    "Failed to un-settle thread",
+  );
   const pending = useRef(Promise.resolve());
 
   const reopenNext = useEffectEvent(async () => {
@@ -118,15 +125,18 @@ export function ReopenClosedViewShortcut() {
           catalogReady: true,
           ownerExists: true,
           shellLive: true,
+          threadSettled: false,
           panel,
         };
       }
+      const shell = readThreadShell(ref);
       return {
         environmentKnown: catalog.entries.has(ref.environmentId),
         catalogReady: catalog.isReady,
-        ownerExists: readThreadShell(ref) !== null || drafts.getDraftThreadByRef(ref) !== null,
+        ownerExists: shell !== null || drafts.getDraftThreadByRef(ref) !== null,
         shellLive:
           appAtomRegistry.get(environmentShell.stateValueAtom(ref.environmentId)).status === "live",
+        threadSettled: shell?.settledOverride === "settled",
         panel,
       };
     });
@@ -138,7 +148,21 @@ export function ReopenClosedViewShortcut() {
     const thread = globalPullRequests ? null : readThreadShell(ref);
     const owner = thread ?? drafts.getDraftThreadByRef(ref);
     const project = owner ? readProject(scopeProjectRef(ref.environmentId, owner.projectId)) : null;
-    if (!(await reopenClosedView(restore, { openPreview, workspaceAvailable: project !== null }))) {
+    const unsettleThread = async (threadRef: ScopedThreadRef) => {
+      ThreadUndo.invalidate("settle", scopedThreadKey(threadRef));
+      const result = await unsettle({
+        environmentId: threadRef.environmentId,
+        input: { threadId: threadRef.threadId, reason: "user" },
+      });
+      return result._tag === "Success";
+    };
+    if (
+      !(await reopenClosedView(restore, {
+        openPreview,
+        unsettleThread,
+        workspaceAvailable: project !== null,
+      }))
+    ) {
       useClosedViewStore.getState().defer(restore.id);
       return;
     }

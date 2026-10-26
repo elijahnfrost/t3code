@@ -32,6 +32,8 @@ const snapshot: PreviewSessionSnapshot = {
   updatedAt: "2026-09-22T12:00:00.000Z",
 };
 
+const unsettleThread = async () => false;
+
 beforeEach(() => {
   __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
   resetPreviewStateForTests();
@@ -54,7 +56,7 @@ describe("reopenClosedView", () => {
           revealRequestId: 1,
         },
       },
-      { openPreview, workspaceAvailable: true },
+      { openPreview, unsettleThread, workspaceAvailable: true },
     );
     expect(reopened).toBe(true);
     const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
@@ -66,6 +68,7 @@ describe("reopenClosedView", () => {
   it("does not reopen workspace tabs without an available project", async () => {
     const options = {
       openPreview: vi.fn(),
+      unsettleThread,
       workspaceAvailable: false,
     };
     for (const surface of [
@@ -91,7 +94,7 @@ describe("reopenClosedView", () => {
     const openPreview = vi.fn(async () => AsyncResult.success({ ...snapshot, tabId: "new-tab" }));
     const result = await reopenClosedView(
       { kind: "browser", threadRef, snapshot },
-      { openPreview, workspaceAvailable: false },
+      { openPreview, unsettleThread, workspaceAvailable: false },
     );
     expect(result).toBe(true);
     expect(openPreview).toHaveBeenCalledWith({
@@ -115,6 +118,7 @@ describe("reopenClosedView", () => {
       { kind: "browser", threadRef, snapshot },
       {
         openPreview: async () => AsyncResult.failure(Cause.fail(new Error("offline"))),
+        unsettleThread,
         workspaceAvailable: false,
       },
     );
@@ -122,6 +126,21 @@ describe("reopenClosedView", () => {
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef).surfaces,
     ).toEqual([]);
+  });
+
+  it("un-settles a closed thread and leaves its panel alone", async () => {
+    const unsettle = vi.fn(async () => true);
+    const openPreview = vi.fn();
+    const reopened = await reopenClosedView(
+      { kind: "thread", threadRef },
+      { openPreview, unsettleThread: unsettle, workspaceAvailable: true },
+    );
+    expect(reopened).toBe(true);
+    expect(unsettle).toHaveBeenCalledExactlyOnceWith(threadRef);
+    expect(openPreview).not.toHaveBeenCalled();
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef).isOpen,
+    ).toBe(false);
   });
 });
 
@@ -135,6 +154,7 @@ describe("planNextReopen", () => {
     catalogReady: true,
     ownerExists: true,
     shellLive: true,
+    threadSettled: false,
     panel: { isOpen: false, activeSurfaceId: null, surfaces: [] },
   };
   const openDiff: ThreadRightPanelState = {
@@ -180,6 +200,17 @@ describe("planNextReopen", () => {
     const plan = planNextReopen(
       entries.slice(0, owners.length),
       (e) => owners[entries.indexOf(e)]!,
+    );
+    expect(plan.drop.map((e) => e.id)).toEqual(dropped);
+    expect(plan.restore?.id ?? null).toBe(restored);
+  });
+
+  it.each([
+    ["restores a thread that is still settled", true, [], "thread"],
+    ["drops a thread that was un-settled another way", false, ["thread"], "a"],
+  ] as const)("%s", (_name, threadSettled, dropped, restored) => {
+    const plan = planNextReopen([{ id: "thread", kind: "thread", threadRef }, entries[0]!], (e) =>
+      e.kind === "thread" ? { ...known, threadSettled } : known,
     );
     expect(plan.drop.map((e) => e.id)).toEqual(dropped);
     expect(plan.restore?.id ?? null).toBe(restored);

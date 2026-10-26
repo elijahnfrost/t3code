@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
   workspaceAvailable: true,
   navigate: vi.fn(),
   openPreview: vi.fn(),
+  settled: false,
+  unsettle: vi.fn(),
   setShortcuts: vi.fn(async (_shortcuts: ReadonlyArray<PreviewForwardedShortcut>) => undefined),
   toast: vi.fn(),
 }));
@@ -38,6 +40,17 @@ vi.mock(import("../state/use-atom-command"), async (original) => ({
   ...(await original()),
   useAtomCommand: ((command: unknown) => command) as never,
 }));
+vi.mock(import("../state/use-orchestration-command"), async (original) => ({
+  ...(await original()),
+  useOrchestrationCommand: ((command: unknown) => command) as never,
+}));
+vi.mock(import("../state/threads"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    threadEnvironment: { ...actual.threadEnvironment, unsettle: state.unsettle as never },
+  };
+});
 vi.mock(import("../state/preview"), async (original) => {
   const actual = await original();
   return {
@@ -67,7 +80,11 @@ vi.mock(import("../state/shell"), async (original) => {
 });
 vi.mock(import("../state/entities"), async (original) => ({
   ...(await original()),
-  readThreadShell: (() => ({ projectId: "project-1", worktreePath: null })) as never,
+  readThreadShell: (() => ({
+    projectId: "project-1",
+    worktreePath: null,
+    settledOverride: state.settled ? "settled" : null,
+  })) as never,
   readProject: (() =>
     state.workspaceAvailable ? { workspaceRoot: "/work/project" } : null) as never,
 }));
@@ -97,6 +114,7 @@ function setup() {
     keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     params: {},
     workspaceAvailable: true,
+    settled: false,
   });
   state.navigate.mockResolvedValue(undefined);
   state.openPreview.mockReset();
@@ -280,6 +298,33 @@ describe("root reopen shortcut", () => {
       expect(useClosedViewStore.getState().entries).toEqual([]);
     },
   );
+
+  it("un-settles and opens the thread settled last, before older closed tabs", async () => {
+    setup();
+    state.settled = true;
+    state.unsettle.mockResolvedValue(AsyncResult.success(undefined));
+    const store = useClosedViewStore.getState();
+    const older = store.remember({
+      kind: "panel-tab",
+      threadRef: ref,
+      surface: { kind: "diff", id: "diff" },
+    });
+    store.remember({ kind: "thread", threadRef: ref });
+    await using _view = await renderShortcut();
+    await act(() => {
+      press();
+    });
+    await vi.waitFor(() =>
+      expect(state.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "/$environmentId/$threadId" }),
+      ),
+    );
+    expect(state.unsettle).toHaveBeenCalledExactlyOnceWith({
+      environmentId: ref.environmentId,
+      input: { threadId: ref.threadId, reason: "user" },
+    });
+    expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([older]);
+  });
 
   it("claims tab chords from a focused browser page and leaves it undo and save", async () => {
     setup();

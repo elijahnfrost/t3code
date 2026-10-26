@@ -1040,6 +1040,7 @@ describe("rightPanelStore", () => {
         openPreview: () => {
           throw new Error("A PR tab must not create a browser session");
         },
+        unsettleThread: async () => false,
       });
       const reopened = selectActiveRightPanelSurface(
         useRightPanelStore.getState().byThreadKey,

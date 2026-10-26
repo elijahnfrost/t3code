@@ -3,6 +3,7 @@ import * as Cause from "effect/Cause";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { useThreadActions } from "./useThreadActions";
+import { useClosedViewStore } from "../closedViewStore";
 import { threadEnvironment } from "../state/threads";
 import { toastManager } from "../components/ui/toast";
 import { useThreadUndoNotice } from "./showThreadUndoNotice";
@@ -201,6 +202,23 @@ describe("archive Undo", () => {
         params: { environmentId: target.environmentId, threadId: target.threadId },
       }),
     );
+  });
+});
+
+describe("settle history", () => {
+  it("remembers a settled thread for the reopen shortcut, but not a refused settle", async () => {
+    useClosedViewStore.setState({ entries: [] });
+    commands.settle.mockResolvedValueOnce({
+      _tag: "Failure",
+      cause: Cause.fail(new Error("Thread is still running.")),
+    });
+    const actions = useThreadActions();
+    await actions.settleThread(target);
+    expect(useClosedViewStore.getState().entries).toEqual([]);
+    await actions.settleThread(target);
+    expect(useClosedViewStore.getState().entries).toMatchObject([
+      { kind: "thread", threadRef: target },
+    ]);
   });
 });
 
